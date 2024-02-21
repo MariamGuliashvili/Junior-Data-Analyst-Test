@@ -1,0 +1,38 @@
+import panda as pd
+import matplotlib.pyplot as plt
+
+orders = pd.read_excel('test-orders.xlsx')
+currency_rates = pd.read_excel('test-currency-rates.xlsx')
+affiliate_rates = pd.read_excel('test-affiliate-rates.xlsx')
+
+orders = orders.drop_duplicates().dropna()
+currency_rates = currency_rates.drop_duplicates().dropna()
+affiliate_rates = affiliate_rates.drop_duplicates().dropna()
+
+currency_rates = currency_rates.melt(id_vars='date', var_name='Currency', value_name='rate')
+def convert_to_eur(row):
+    if row['Currency'] != 'EUR':
+        return row['Order Amount'] * row['rate']
+    else:
+        return row['Order Amount']
+    
+merged = pd.merge(orders, currency_rates, left_on=['Order Date', 'Currency'], right_on=['date', 'Currency'], how='left')
+merged['Order Amount'] = merged.apply(convert_to_eur, axis=1)
+
+# Merge with affiliate_rates
+merged = pd.merge(merged, affiliate_rates, left_on='Affiliate ID', right_on='Affiliate ID', how='left')
+# Convert 'Order Date' to datetime and set it as index
+merged.set_index('Order Date', inplace=True)
+for name, group in merged.groupby('Affiliate Name'):
+    weekly_data = group.resample('W-Sun').agg({
+        'Order Number': 'count',
+        'Order Amount': 'sum',
+        'Processing Rate': 'mean',  
+        'Chargeback Fee': 'sum',
+        'Refund Fee': 'sum'
+    })
+    weekly_data['Total Processing Fee'] = weekly_data['Order Amount'] * weekly_data['Processing Rate']
+    weekly_data['Total Refund Fee'] = weekly_data['Order Number'] * weekly_data['Refund Fee']
+    weekly_data['Total Chargeback Fee'] = weekly_data['Order Number'] * weekly_data['Chargeback Fee']
+    # Save to .xlsx
+    weekly_data.to_excel(f"{name}.xlsx")
